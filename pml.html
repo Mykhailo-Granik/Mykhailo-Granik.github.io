@@ -122,57 +122,55 @@ $(document).ready(function () {
 
 <div id="data-loading-and-preprocessing" class="section level2">
 <h2>Data loading and preprocessing</h2>
-<p>First of all, lets load and save the training data and load all necessary packages</p>
+<p>First of all, lets load and save the training and testing data and load all necessary packages</p>
 <pre class="r"><code>library(caret)</code></pre>
 <pre><code>## Loading required package: lattice</code></pre>
 <pre><code>## Loading required package: ggplot2</code></pre>
-<pre class="r"><code>library(RANN)
-library(e1071)
-trainingData = read.csv(&quot;pml-training.csv&quot;)</code></pre>
-<p>Then, let’s divide it into testing and validation subset. The validation subset is needed for choosing the better model (or choosing some meta parameters of the models).</p>
-<p>Additionally, after initial dividing, it was decided to leave only 10% of both testing and validation data set. This was done to reduce training time. It is not a good decision, but it is a compromise I had to take because of hardware limitations.</p>
-<pre class="r"><code>inTrain = createDataPartition(trainingData$classe, p = 3/4)[[1]]
-training = trainingData[inTrain,]
-validation = trainingData[-inTrain,]
-trainingHeadPartition = createDataPartition(training$classe, p = 0.1)[[1]]
-trainingHead = training[trainingHeadPartition,]
-validationHeadPartition = createDataPartition(validation$classe, p = 0.1)[[1]]
-validationHead = validation[validationHeadPartition, ]</code></pre>
+<pre class="r"><code>training = read.csv(&quot;pml-training.csv&quot;)
+testing = read.csv(&quot;pml-testing.csv&quot;)</code></pre>
+<p>The, let’s remove all of the columns with NA’s in both data sets:</p>
+<pre class="r"><code>colNamesWithNaTraining = colnames(training)[colSums(is.na(training)) &gt; 0]
+colNamesWithNaTesting = colnames(testing)[colSums(is.na(testing)) &gt; 0]
+trainingReduced = training[, -which(names(training) %in% colNamesWithNaTraining)]
+trainingReduced &lt;- trainingReduced[, -which(names(trainingReduced) %in% colNamesWithNaTesting)]
+testingReduced &lt;- testing[, -which(names(testing) %in% colNamesWithNaTraining)]
+testingReduced = testingReduced[, -which(names(testingReduced) %in% colNamesWithNaTesting)]</code></pre>
+<p>Then, let’s divide training data set into training and validation subset. The validation subset is needed for choosing the better model (or choosing some meta parameters of the models).</p>
+<p>It was decided to use only 10 percent of the data for training because of hardware reasons</p>
+<pre class="r"><code>inTrain = createDataPartition(trainingReduced$classe, p = 0.1)[[1]]
+trainingSample = trainingReduced[inTrain,]
+validationSample = trainingReduced[-inTrain,]</code></pre>
 </div>
 <div id="prediction" class="section level2">
 <h2>Prediction</h2>
-<p>It was decided to use decision trees algorithm for training and making predictions.</p>
-<p>Both of the data sets has a lot of empty fields, described as NA’s. I got rid of them using preprocessing techniques. First of them is “k nearest neighbors imputing”.</p>
-<p>All of that led to following solution:</p>
-<pre class="r"><code>preProcValues = preProcess(trainingHead, method = c(&quot;knnImpute&quot;))
-trainingHeadPreprocessed = predict(preProcValues, trainingHead)
-modRpart = train(classe ~ ., method = &quot;rpart&quot;, data = trainingHeadPreprocessed)</code></pre>
-<pre><code>## Loading required package: rpart</code></pre>
-<pre class="r"><code>preProcValues = preProcess(validationHead, method = c(&quot;knnImpute&quot;))
-validationHeadPreprocessed = predict(preProcValues, validationHead)
-predRpart = predict(modRpart, validationHeadPreprocessed)
-confusionMatrix(predRpart, validationHeadPreprocessed$classe)$overall[1]</code></pre>
+<p>It was decided to use random forests algorithm with for training and making predictions.</p>
+<p>Couple of models were tried by hand and tested on the validation set (this process should be automized in future) One of the best models is shown here:</p>
+<pre class="r"><code>tr &lt;- trainControl(method = &quot;cv&quot;, number = 5)
+modRf &lt;- train(classe ~ roll_belt + pitch_belt + yaw_belt + total_accel_belt+roll_forearm, method = &quot;rf&quot;, data = trainingSample, trControl = tr)</code></pre>
+<pre><code>## Loading required package: randomForest</code></pre>
+<pre><code>## randomForest 4.6-12</code></pre>
+<pre><code>## Type rfNews() to see new features/changes/bug fixes.</code></pre>
+<pre><code>## 
+## Attaching package: 'randomForest'</code></pre>
+<pre><code>## The following object is masked from 'package:ggplot2':
+## 
+##     margin</code></pre>
+<pre class="r"><code>predRf = predict(modRf)
+confusionMatrix(predRf, trainingSample$classe)$overall[1]</code></pre>
 <pre><code>##  Accuracy 
-## 0.6612576</code></pre>
-<p>Received accuracy on the validation set equals to 65.7%</p>
-<p>Let’s do the same thing, but using “bag impute” preprocessing:</p>
-<pre class="r"><code>preProcValues = preProcess(trainingHead, method = c(&quot;bagImpute&quot;))
-trainingHeadPreprocessed = predict(preProcValues, trainingHead)
-modRpart = train(classe ~ ., method = &quot;rpart&quot;, data = trainingHeadPreprocessed)
-preProcValues = preProcess(validationHead, method = c(&quot;bagImpute&quot;))
-validationHeadPreprocessed = predict(preProcValues, validationHead)
-predRpart = predict(modRpart, validationHeadPreprocessed)
-confusionMatrix(predRpart, validationHeadPreprocessed$classe)$overall[1]</code></pre>
+## 0.9943992</code></pre>
+<pre class="r"><code>predRf = predict(modRf, newdata = validationSample)
+confusionMatrix(predRf, validationSample$classe)$overall[1]</code></pre>
 <pre><code>##  Accuracy 
-## 0.6612576</code></pre>
-<p>Received accuracy on the validation set equals to 66.12%</p>
-<p>We’ll use this model for predictions on the unseen data</p>
+## 0.8712765</code></pre>
+<p>Received accuracy on the validation set is 87%. It’s accuracy on the test set should be slightly less because we used validation set for model selection.</p>
+<p>Since the training error is so small, it is possible that model still overfits. Probably, some regularization should be performed as well.</p>
 </div>
 <div id="conclusions" class="section level2">
 <h2>Conclusions</h2>
 <p>What should I’ve done better:</p>
 <ol style="list-style-type: decimal">
-<li><p>Perform some model selection. That would’ve made the training faster and made the model simpler.</p></li>
+<li><p>Perform some model selection. That would’ve made the training faster and probably made the model simpler.</p></li>
 <li><p>Train more models</p></li>
 <li><p>Use model stacking or some other techniques of combining models for achieving better results</p></li>
 </ol>
